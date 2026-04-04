@@ -18,45 +18,29 @@ import redis from './lib/redis'
 import { startScheduler } from './jobs/scheduler'
 
 const app = Fastify({
-  logger: {
-    level: process.env.NODE_ENV === 'production' ? 'warn' : 'info',
-    transport:
-      process.env.NODE_ENV !== 'production'
-        ? { target: 'pino-pretty', options: { colorize: true } }
-        : undefined,
-  },
+  logger: true,
 })
 
 async function bootstrap() {
-  // ── Plugins ──────────────────────────────────────────
   await app.register(fastifyCors, {
-    origin: [
-      process.env.FRONTEND_URL || 'http://localhost:3000',
-      'https://glpkart.com',
-      'https://www.glpkart.com',
-    ],
+    origin: true,
     credentials: true,
   })
 
   await app.register(fastifyJwt, {
-    secret: process.env.JWT_SECRET!,
+    secret: process.env.JWT_SECRET || 'fallback-secret-change-in-production',
   })
 
   await app.register(fastifyCookie, {
-    secret: process.env.JWT_SECRET!,
+    secret: process.env.JWT_SECRET || 'fallback-secret-change-in-production',
   })
 
   await app.register(fastifyRateLimit, {
     max: 100,
     timeWindow: '1 minute',
-    keyGenerator: (req) =>
-      (req.headers['x-forwarded-for'] as string) || req.ip,
   })
 
-  // ── Auth middleware ───────────────────────────────────
   await app.register(authMiddleware)
-
-  // ── Routes ───────────────────────────────────────────
   await app.register(authRoutes)
   await app.register(journeyRoutes)
   await app.register(consultationRoutes)
@@ -65,28 +49,34 @@ async function bootstrap() {
   await app.register(webhookRoutes)
   await app.register(schedulerRoutes)
 
-  // ── Health check ──────────────────────────────────────
+  // Health check
   app.get('/health', async () => ({
     status: 'ok',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
+    env: process.env.NODE_ENV,
   }))
 
-  // ── Start ─────────────────────────────────────────────
-  const port = parseInt(process.env.PORT || '3001')
-  await app.listen({ port, host: '0.0.0.0' })
-  console.log(`[GLPKart] Backend running on port ${port}`)
+  // Root route
+  app.get('/', async () => ({
+    name: 'GLPKart API',
+    status: 'running',
+    docs: '/health',
+  }))
 
-  // Start cron jobs
+  // Railway sets PORT dynamically — must listen on 0.0.0.0
+  const port = parseInt(process.env.PORT || '3000')
+  const host = '0.0.0.0'
+
+  await app.listen({ port, host })
+  console.log(`[GLPKart] Server listening on ${host}:${port}`)
   startScheduler()
 }
 
-// Graceful shutdown
 const shutdown = async () => {
-  console.log('[GLPKart] Shutting down...')
   await app.close()
   await prisma.$disconnect()
-  await redis.quit()
+  if (redis) await redis.quit()
   process.exit(0)
 }
 
