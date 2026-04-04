@@ -2,10 +2,18 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import fp from 'fastify-plugin'
 import { tokens } from '../lib/redis'
 
-// Extend FastifyRequest with user context
+// Extend FastifyRequest with our own typed user context
+declare module '@fastify/jwt' {
+  interface FastifyJWT {
+    payload: { sub: string; role: string; jti: string }
+    user: { sub: string; role: string; jti: string }
+  }
+}
+
+// Separate namespace so req.glpUser doesn't conflict with @fastify/jwt's req.user
 declare module 'fastify' {
   interface FastifyRequest {
-    user: {
+    glpUser: {
       id: string
       role: 'PATIENT' | 'DOCTOR' | 'ADMIN'
       jti: string
@@ -20,16 +28,13 @@ declare module 'fastify' {
 }
 
 export const authMiddleware = fp(async (fastify: FastifyInstance) => {
-  // Core authenticate decorator
   fastify.decorate(
     'authenticate',
     async (req: FastifyRequest, reply: FastifyReply) => {
       try {
         await req.jwtVerify()
-
         const payload = req.user as { sub: string; role: string; jti: string }
 
-        // Check token blocklist (Redis)
         if (payload.jti) {
           const blocked = await tokens.isBlocked(payload.jti)
           if (blocked) {
@@ -37,26 +42,24 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
           }
         }
 
-        // Normalise user on request
-        req.user = {
+        req.glpUser = {
           id: payload.sub,
           role: payload.role as 'PATIENT' | 'DOCTOR' | 'ADMIN',
           jti: payload.jti,
         }
-      } catch (err) {
+      } catch {
         return reply.code(401).send({ error: 'Unauthorised. Please log in.' })
       }
     }
   )
 
-  // Role guard decorator factory
   fastify.decorate(
     'requireRole',
     (roles: Array<'PATIENT' | 'DOCTOR' | 'ADMIN'>) =>
       async (req: FastifyRequest, reply: FastifyReply) => {
         await fastify.authenticate(req, reply)
-        if (!roles.includes(req.user.role)) {
-          return reply.code(403).send({ error: 'You do not have permission to access this resource.' })
+        if (!roles.includes(req.glpUser.role)) {
+          return reply.code(403).send({ error: 'Access denied.' })
         }
       }
   )

@@ -154,7 +154,7 @@ export async function journeyRoutes(fastify: FastifyInstance) {
       }
 
       const { weightKg, waistCm, source } = parse.data
-      const patientId = await getPatientId(req.user.id)
+      const patientId = await getPatientId(req.glpUser.id)
       if (!patientId) return reply.code(404).send({ error: 'Patient profile not found' })
 
       const log = await prisma.weightLog.create({
@@ -194,7 +194,7 @@ export async function journeyRoutes(fastify: FastifyInstance) {
       const days = parseInt(query.days || '90')
       const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
 
-      const patientId = await getPatientId(req.user.id)
+      const patientId = await getPatientId(req.glpUser.id)
       if (!patientId) return reply.code(404).send({ error: 'Patient profile not found' })
 
       const logs = await prisma.weightLog.findMany({
@@ -230,7 +230,7 @@ export async function journeyRoutes(fastify: FastifyInstance) {
         return reply.code(400).send({ error: parse.error.issues[0].message })
       }
 
-      const patientId = await getPatientId(req.user.id)
+      const patientId = await getPatientId(req.glpUser.id)
       if (!patientId) return reply.code(404).send({ error: 'Patient profile not found' })
 
       const log = await prisma.injectionLog.create({
@@ -257,7 +257,7 @@ export async function journeyRoutes(fastify: FastifyInstance) {
     '/journey/injection/next-site',
     { preHandler: [fastify.authenticate] },
     async (req: FastifyRequest, reply: FastifyReply) => {
-      const patientId = await getPatientId(req.user.id)
+      const patientId = await getPatientId(req.glpUser.id)
       if (!patientId) return reply.code(404).send({ error: 'Patient profile not found' })
 
       const nextSite = await getNextInjectionSite(patientId)
@@ -278,7 +278,7 @@ export async function journeyRoutes(fastify: FastifyInstance) {
         return reply.code(400).send({ error: parse.error.issues[0].message })
       }
 
-      const patientId = await getPatientId(req.user.id)
+      const patientId = await getPatientId(req.glpUser.id)
       if (!patientId) return reply.code(404).send({ error: 'Patient profile not found' })
 
       const log = await prisma.sideEffectLog.create({
@@ -302,7 +302,7 @@ export async function journeyRoutes(fastify: FastifyInstance) {
     '/journey/dashboard',
     { preHandler: [fastify.authenticate] },
     async (req: FastifyRequest, reply: FastifyReply) => {
-      const patientId = await getPatientId(req.user.id)
+      const patientId = await getPatientId(req.glpUser.id)
       if (!patientId) return reply.code(404).send({ error: 'Patient profile not found' })
 
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)

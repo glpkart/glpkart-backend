@@ -100,7 +100,7 @@ export async function consultationRoutes(fastify: FastifyInstance) {
       const { doctorId, scheduledAt } = parse.data
 
       const patient = await prisma.patientProfile.findUnique({
-        where: { userId: req.user.id },
+        where: { userId: req.glpUser.id },
       })
       if (!patient) return reply.code(404).send({ error: 'Patient profile not found' })
 
@@ -168,15 +168,15 @@ export async function consultationRoutes(fastify: FastifyInstance) {
 
       let where: Record<string, unknown> = {}
 
-      if (req.user.role === 'PATIENT') {
+      if (req.glpUser.role === 'PATIENT') {
         const patient = await prisma.patientProfile.findUnique({
-          where: { userId: req.user.id },
+          where: { userId: req.glpUser.id },
         })
         if (!patient) return reply.code(404).send({ error: 'Patient not found' })
         where = { patientId: patient.id }
-      } else if (req.user.role === 'DOCTOR') {
+      } else if (req.glpUser.role === 'DOCTOR') {
         const doctor = await prisma.doctor.findUnique({
-          where: { userId: req.user.id },
+          where: { userId: req.glpUser.id },
         })
         if (!doctor) return reply.code(404).send({ error: 'Doctor not found' })
         where = { doctorId: doctor.id }

@@ -127,7 +127,7 @@ export async function forumRoutes(fastify: FastifyInstance) {
       }
 
       const user = await prisma.user.findUnique({
-        where: { id: req.user.id },
+        where: { id: req.glpUser.id },
         select: { forumPersona: true },
       })
 
@@ -141,12 +141,12 @@ export async function forumRoutes(fastify: FastifyInstance) {
       const post = await prisma.forumPost.create({
         data: {
           id: uuidv4(),
-          authorId: req.user.id,
+          authorId: req.glpUser.id,
           personaName: user.forumPersona,
           title: parse.data.title,
           body: parse.data.body,
           topic: parse.data.topic,
-          isDoctorPost: req.user.role === 'DOCTOR',
+          isDoctorPost: req.glpUser.role === 'DOCTOR',
           moderationStatus: modResult.flagged ? 'FLAGGED' : 'VISIBLE',
         },
         select: {
@@ -187,7 +187,7 @@ export async function forumRoutes(fastify: FastifyInstance) {
       const [post, user] = await Promise.all([
         prisma.forumPost.findUnique({ where: { id }, select: { id: true } }),
         prisma.user.findUnique({
-          where: { id: req.user.id },
+          where: { id: req.glpUser.id },
           select: { forumPersona: true },
         }),
       ])
@@ -201,10 +201,10 @@ export async function forumRoutes(fastify: FastifyInstance) {
         data: {
           id: uuidv4(),
           postId: id,
-          authorId: req.user.id,
+          authorId: req.glpUser.id,
           personaName: user.forumPersona,
           body: parse.data.body,
-          isDoctorReply: req.user.role === 'DOCTOR',
+          isDoctorReply: req.glpUser.role === 'DOCTOR',
           moderationStatus: modResult.flagged ? 'FLAGGED' : 'VISIBLE',
         },
         select: {
@@ -256,7 +256,7 @@ export async function forumRoutes(fastify: FastifyInstance) {
           data: {
             id: uuidv4(),
             postId: id,
-            flaggedBy: req.user.id,
+            flaggedBy: req.glpUser.id,
             reason: reason || 'No reason given',
           },
         }),
@@ -292,7 +292,7 @@ export async function forumRoutes(fastify: FastifyInstance) {
     { preHandler: [fastify.authenticate] },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const posts = await prisma.forumPost.findMany({
-        where: { authorId: req.user.id },
+        where: { authorId: req.glpUser.id },
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
