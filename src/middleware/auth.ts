@@ -2,15 +2,13 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import fp from 'fastify-plugin'
 import { tokens } from '../lib/redis'
 
-// Extend FastifyRequest with our own typed user context
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { sub: string; role: string; jti: string }
-    user: { sub: string; role: string; jti: string }
+    payload: { sub: string; role: string; jti: string; type?: string }
+    user: { sub: string; role: string; jti: string; type?: string }
   }
 }
 
-// Separate namespace so req.glpUser doesn't conflict with @fastify/jwt's req.user
 declare module 'fastify' {
   interface FastifyRequest {
     glpUser: {
@@ -34,14 +32,10 @@ export const authMiddleware = fp(async (fastify: FastifyInstance) => {
       try {
         await req.jwtVerify()
         const payload = req.user as { sub: string; role: string; jti: string }
-
         if (payload.jti) {
           const blocked = await tokens.isBlocked(payload.jti)
-          if (blocked) {
-            return reply.code(401).send({ error: 'Session expired. Please log in again.' })
-          }
+          if (blocked) return reply.code(401).send({ error: 'Session expired. Please log in again.' })
         }
-
         req.glpUser = {
           id: payload.sub,
           role: payload.role as 'PATIENT' | 'DOCTOR' | 'ADMIN',
