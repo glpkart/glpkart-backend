@@ -2,7 +2,7 @@
   "name": "glpkart-backend",
   "version": "2.1.0",
   "scripts": {
-    "start": "npx prisma db push --accept-data-loss && node index.js",
+    "start": "npx prisma db push --accept-data-loss && npx prisma generate && node index.js",
     "build": "echo ok",
     "postinstall": "prisma generate"
   },
