@@ -101,7 +101,7 @@ enum SubscriptionStatus {
 // ─── OTP ───────────────────────────────────────────────────────────────────────
 // ADDED: was missing from schema — backend calls prisma.oTPSession.upsert()
 
-model OTPSession {
+model OtpSession {
   id         String   @id @default(uuid())
   phone      String   @unique
   code       String
