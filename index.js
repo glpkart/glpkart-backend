@@ -139,7 +139,7 @@ fastify.post('/auth/otp/verify', async (request, reply) => {
 
   otpStore.delete(phone)
 
-  // FIX #4: patientProfile created with {} — safe now because all fields are optional in schema
+
   let user = await prisma.user.findUnique({ where: { phone } })
   if (!user) {
     user = await prisma.user.create({
@@ -147,7 +147,7 @@ fastify.post('/auth/otp/verify', async (request, reply) => {
         phone,
         role: 'PATIENT',
         forumPersona: generatePersona(),
-        patientProfile: { create: {} },
+
       },
     })
   }
