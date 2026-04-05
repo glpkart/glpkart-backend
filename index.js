@@ -95,7 +95,7 @@ fastify.post('/auth/otp/send', async (request, reply) => {
   const otp = OTP_BYPASS || generateOtp()
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
 
-  await prisma.otp.upsert({
+  await prisma.otpSession.upsert({
     where: { phone },
     create: { phone, code: otp, expiresAt, attempts: 0 },
     update: { code: otp, expiresAt, attempts: 0 },
@@ -121,23 +121,23 @@ fastify.post('/auth/otp/verify', async (request, reply) => {
     return reply.code(400).send({ error: 'Phone and OTP are required' })
   }
 
-  const session = await prisma.otp.findUnique({ where: { phone } })
+  const session = await prisma.otpSession.findUnique({ where: { phone } })
   if (!session) {
     return reply.code(400).send({ error: 'No OTP found. Please request a new one.' })
   }
   if (session.expiresAt < new Date()) {
-    await prisma.otp.delete({ where: { phone } })
+    await prisma.otpSession.delete({ where: { phone } })
     return reply.code(400).send({ error: 'OTP expired. Please request a new one.' })
   }
   if (session.attempts >= 5) {
     return reply.code(429).send({ error: 'Too many attempts. Please request a new OTP.' })
   }
   if (session.code !== code.toString()) {
-    await prisma.otp.update({ where: { phone }, data: { attempts: { increment: 1 } } })
+    await prisma.otpSession.update({ where: { phone }, data: { attempts: { increment: 1 } } })
     return reply.code(400).send({ error: 'Incorrect OTP. Please try again.' })
   }
 
-  await prisma.otp.delete({ where: { phone } })
+  await prisma.otpSession.delete({ where: { phone } })
 
   // FIX #4: patientProfile created with {} — safe now because all fields are optional in schema
   let user = await prisma.user.findUnique({ where: { phone } })
