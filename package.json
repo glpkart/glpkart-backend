@@ -1,8 +1,8 @@
 {
   "name": "glpkart-backend",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "scripts": {
-    "start": "npx prisma migrate deploy && node index.js",
+    "start": "npx prisma db push --accept-data-loss && node index.js",
     "build": "echo ok",
     "postinstall": "prisma generate"
   },
