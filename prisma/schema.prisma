@@ -7,7 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── ENUMS ───────────────────────────────────────────────
+// ─── ENUMS ─────────────────────────────────────────────────────────────────────
 
 enum Role {
   PATIENT
@@ -26,8 +26,9 @@ enum EligibilityResult {
   INELIGIBLE
 }
 
+// FIXED: was BOOKED — backend uses SCHEDULED
 enum ConsultStatus {
-  BOOKED
+  SCHEDULED
   COMPLETED
   CANCELLED
   NO_SHOW
@@ -97,7 +98,21 @@ enum SubscriptionStatus {
   CANCELLED
 }
 
-// ─── CORE TABLES ─────────────────────────────────────────
+// ─── OTP ───────────────────────────────────────────────────────────────────────
+// ADDED: was missing from schema — backend calls prisma.oTPSession.upsert()
+
+model OTPSession {
+  id         String   @id @default(uuid())
+  phone      String   @unique
+  code       String
+  expiresAt  DateTime
+  attempts   Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@map("otp_sessions")
+}
+
+// ─── CORE TABLES ───────────────────────────────────────────────────────────────
 
 model User {
   id              String    @id @default(uuid())
@@ -123,16 +138,21 @@ model PatientProfile {
   id               String    @id @default(uuid())
   userId           String    @unique
   user             User      @relation(fields: [userId], references: [id])
-  fullName         String
-  dob              DateTime  @db.Date
-  sex              Sex
-  city             String
-  heightCm         Decimal   @db.Decimal(5, 1)
-  startWeightKg    Decimal   @db.Decimal(5, 1)
+
+  // FIXED: all were non-nullable — backend creates with empty {} which would fail
+  fullName         String?
+  dob              DateTime? @db.Date
+  sex              Sex?
+  city             String?
+  heightCm         Decimal?  @db.Decimal(5, 1)
+  startWeightKg    Decimal?  @db.Decimal(5, 1)
   currentWeightKg  Decimal?  @db.Decimal(5, 1)
   goalWeightKg     Decimal?  @db.Decimal(5, 1)
+  treatmentStartDate DateTime?
+
   assignedDoctorId String?
   assignedDoctor   Doctor?   @relation(fields: [assignedDoctorId], references: [id])
+
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -178,45 +198,47 @@ model Doctor {
 }
 
 model MedicalHistory {
-  id                    String            @id @default(uuid())
-  patientId             String            @unique
-  patient               PatientProfile    @relation(fields: [patientId], references: [id])
-  conditions            Json              // { pcos: true, diabetes: false, htn: false, ... }
-  medications           Json              // [{ name: "Metformin", dose: "500mg" }]
-  allergies             Json              // [{ type: "drug", name: "Penicillin" }]
-  contraindications     Json              // { mtc: false, pancreatitis: false, pregnant: false }
-  eligibilityResult     EligibilityResult
-  eligibilityCheckedAt  DateTime
-  confirmedByDoctorId   String?
-  confirmedAt           DateTime?
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  id                   String             @id @default(uuid())
+  patientId            String             @unique
+  patient              PatientProfile     @relation(fields: [patientId], references: [id])
+  conditions           Json
+  medications          Json
+  allergies            Json
+  contraindications    Json
+  eligibilityResult    EligibilityResult
+  eligibilityCheckedAt DateTime
+  confirmedByDoctorId  String?
+  confirmedAt          DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   @@map("medical_history")
 }
 
-// ─── CONSULTATION ────────────────────────────────────────
+// ─── CONSULTATION ──────────────────────────────────────────────────────────────
 
 model Consultation {
-  id                  String        @id @default(uuid())
-  patientId           String
-  patient             PatientProfile @relation(fields: [patientId], references: [id])
-  doctorId            String
-  doctor              Doctor        @relation(fields: [doctorId], references: [id])
-  scheduledAt         DateTime
-  status              ConsultStatus @default(BOOKED)
-  razorpayOrderId     String?
-  razorpayPaymentId   String?
-  paymentStatus       PaymentStatus @default(PENDING)
-  amountPaise         Int           // 79900 = ₹799
-  notes               String?       // doctor's post-call notes
-  doseDecision        DoseDecision?
-  nextConsultDate     DateTime?
-  labRecommendation   String?
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  id                String        @id @default(uuid())
+  patientId         String
+  patient           PatientProfile @relation(fields: [patientId], references: [id])
+  doctorId          String
+  doctor            Doctor        @relation(fields: [doctorId], references: [id])
+  scheduledAt       DateTime
+  // FIXED: was ConsultStatus enum with BOOKED — now SCHEDULED matches backend code
+  status            ConsultStatus @default(SCHEDULED)
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  paymentStatus     PaymentStatus @default(PENDING)
+  // FIXED: field was amountPaise — backend was incorrectly using feePaise
+  amountPaise       Int
+  notes             String?
+  doseDecision      DoseDecision?
+  nextConsultDate   DateTime?
+  labRecommendation String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
-  prescription        Prescription?
+  prescription      Prescription?
 
   @@index([patientId])
   @@index([doctorId])
@@ -226,19 +248,18 @@ model Consultation {
 
 model Prescription {
   id             String         @id @default(uuid())
-  rxNumber       String         @unique // SS-RX-20260405-0044
+  rxNumber       String         @unique
   patientId      String
   patient        PatientProfile @relation(fields: [patientId], references: [id])
   doctorId       String
   doctor         Doctor         @relation(fields: [doctorId], references: [id])
   consultationId String?        @unique
   consultation   Consultation?  @relation(fields: [consultationId], references: [id])
-  medicines      Json           // [{ name, dose, frequency, quantity, instructions }]
+  medicines      Json
   notes          String?
-  pdfS3Key       String?        // path to signed PDF in S3
+  pdfS3Key       String?
   validUntil     DateTime       @db.Date
   issuedAt       DateTime       @default(now())
-  // Legal: 7-year retention enforced via DB policy, never hard-deleted
 
   orders         Order[]
 
@@ -246,7 +267,7 @@ model Prescription {
   @@map("prescriptions")
 }
 
-// ─── JOURNEY ─────────────────────────────────────────────
+// ─── JOURNEY ───────────────────────────────────────────────────────────────────
 
 model WeightLog {
   id        String         @id @default(uuid())
@@ -254,7 +275,7 @@ model WeightLog {
   patient   PatientProfile @relation(fields: [patientId], references: [id])
   weightKg  Decimal        @db.Decimal(5, 1)
   waistCm   Decimal?       @db.Decimal(5, 1)
-  source    String         @default("app") // app | whatsapp
+  source    String         @default("app")
   loggedAt  DateTime       @default(now())
 
   @@index([patientId, loggedAt])
@@ -268,7 +289,7 @@ model InjectionLog {
   medicineName  String
   doseMg        Decimal        @db.Decimal(4, 2)
   injectionSite InjectionSite
-  injectedAt    DateTime?      // null if skipped
+  injectedAt    DateTime?
   dueAt         DateTime
   skipped       Boolean        @default(false)
   skipReason    String?
@@ -279,13 +300,13 @@ model InjectionLog {
 }
 
 model SideEffectLog {
-  id          String         @id @default(uuid())
-  patientId   String
-  patient     PatientProfile @relation(fields: [patientId], references: [id])
-  symptom     String         // nausea, constipation, fatigue, etc.
-  severity    Int            // 1-5
-  notes       String?
-  loggedAt    DateTime       @default(now())
+  id        String         @id @default(uuid())
+  patientId String
+  patient   PatientProfile @relation(fields: [patientId], references: [id])
+  symptom   String
+  severity  Int
+  notes     String?
+  loggedAt  DateTime       @default(now())
 
   @@index([patientId, loggedAt])
   @@map("side_effect_logs")
@@ -295,10 +316,10 @@ model LabResult {
   id               String         @id @default(uuid())
   patientId        String
   patient          PatientProfile @relation(fields: [patientId], references: [id])
-  testName         String         // GLP-1 Progress Check
-  provider         String         // Thyrocare
+  testName         String
+  provider         String
   thyrocareOrderId String?
-  results          Json           // { hba1c: 6.1, b12: 198, ldl: 128, ... }
+  results          Json
   reportS3Key      String?
   collectedAt      DateTime
   createdAt        DateTime       @default(now())
@@ -307,73 +328,73 @@ model LabResult {
   @@map("lab_results")
 }
 
-// ─── ORDERS ──────────────────────────────────────────────
+// ─── ORDERS ────────────────────────────────────────────────────────────────────
 
 model Order {
-  id               String         @id @default(uuid())
-  orderNumber      String         @unique // GK-20260405-0044
-  patientId        String
-  patient          PatientProfile @relation(fields: [patientId], references: [id])
-  prescriptionId   String?
-  prescription     Prescription?  @relation(fields: [prescriptionId], references: [id])
-  items            Json           // [{ sku, name, qty, pricePaise }]
-  totalAmountPaise Int
-  status           OrderStatus    @default(PENDING)
-  razorpayOrderId  String?
+  id                String         @id @default(uuid())
+  orderNumber       String         @unique
+  patientId         String
+  patient           PatientProfile @relation(fields: [patientId], references: [id])
+  prescriptionId    String?
+  prescription      Prescription?  @relation(fields: [prescriptionId], references: [id])
+  items             Json
+  totalAmountPaise  Int
+  status            OrderStatus    @default(PENDING)
+  razorpayOrderId   String?
   razorpayPaymentId String?
-  pharmacyOrderId  String?        // ID from pharmacy partner
-  trackingId       String?        // Delhivery AWB
-  deliveryAddress  Json
-  isAutoRefill     Boolean        @default(false)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  pharmacyOrderId   String?
+  trackingId        String?
+  deliveryAddress   Json
+  isAutoRefill      Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   @@index([patientId])
   @@map("orders")
 }
 
 model Subscription {
-  id              String             @id @default(uuid())
-  patientId       String
-  patient         PatientProfile     @relation(fields: [patientId], references: [id])
-  medicineName    String
-  doseMg          Decimal            @db.Decimal(4, 2)
-  frequencyDays   Int                @default(7)
+  id               String             @id @default(uuid())
+  patientId        String
+  patient          PatientProfile     @relation(fields: [patientId], references: [id])
+  medicineName     String
+  doseMg           Decimal            @db.Decimal(4, 2)
+  frequencyDays    Int                @default(7)
   quantityPerRefill Int
-  nextRefillDate  DateTime
-  supplyEndsAt    DateTime
-  status          SubscriptionStatus @default(ACTIVE)
-  razorpaySubId   String?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  nextRefillDate   DateTime
+  supplyEndsAt     DateTime
+  status           SubscriptionStatus @default(ACTIVE)
+  razorpaySubId    String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
   @@index([patientId, nextRefillDate])
   @@map("subscriptions")
 }
 
 model Address {
-  id         String         @id @default(uuid())
-  patientId  String
-  patient    PatientProfile @relation(fields: [patientId], references: [id])
-  label      String         // Home, Office
-  line1      String
-  line2      String?
-  city       String
-  state      String
-  pincode    String
-  isDefault  Boolean        @default(false)
-  createdAt  DateTime       @default(now())
+  id        String         @id @default(uuid())
+  patientId String
+  patient   PatientProfile @relation(fields: [patientId], references: [id])
+  label     String
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  pincode   String
+  isDefault Boolean        @default(false)
+  createdAt DateTime       @default(now())
 
   @@map("addresses")
 }
 
-// ─── FORUM ───────────────────────────────────────────────
+// ─── FORUM ─────────────────────────────────────────────────────────────────────
 
 model ForumPost {
   id               String           @id @default(uuid())
   authorId         String
   author           User             @relation(fields: [authorId], references: [id])
-  personaName      String           // shown publicly, never real name
+  personaName      String
   title            String
   body             String
   topic            ForumTopic
@@ -381,6 +402,8 @@ model ForumPost {
   helpfulCount     Int              @default(0)
   flagCount        Int              @default(0)
   moderationStatus ModerationStatus @default(VISIBLE)
+  // ADDED: backend queries isDeleted — added here to match
+  isDeleted        Boolean          @default(false)
   isPinned         Boolean          @default(false)
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
@@ -414,27 +437,27 @@ model ForumFlag {
   id        String    @id @default(uuid())
   postId    String
   post      ForumPost @relation(fields: [postId], references: [id])
-  flaggedBy String    // user id
+  flaggedBy String
   reason    String
   createdAt DateTime  @default(now())
 
   @@map("forum_flags")
 }
 
-// ─── NOTIFICATIONS ───────────────────────────────────────
+// ─── NOTIFICATIONS ─────────────────────────────────────────────────────────────
 
 model NotificationLog {
-  id            String              @id @default(uuid())
-  userId        String
-  user          User                @relation(fields: [userId], references: [id])
-  templateName  String
-  channel       NotificationChannel
-  gupshupMsgId  String?
-  status        NotificationStatus  @default(SENT)
-  variables     Json                // template variable values used
-  sentAt        DateTime            @default(now())
-  deliveredAt   DateTime?
-  readAt        DateTime?
+  id           String             @id @default(uuid())
+  userId       String
+  user         User               @relation(fields: [userId], references: [id])
+  templateName String
+  channel      NotificationChannel
+  gupshupMsgId String?
+  status       NotificationStatus @default(SENT)
+  variables    Json
+  sentAt       DateTime           @default(now())
+  deliveredAt  DateTime?
+  readAt       DateTime?
 
   @@index([userId, sentAt])
   @@index([templateName])
@@ -447,46 +470,46 @@ model NotificationPreference {
   patient             PatientProfile @relation(fields: [patientId], references: [id])
   whatsappEnabled     Boolean        @default(true)
   emailEnabled        Boolean        @default(true)
-  injectionReminder   Boolean        @default(true)  // cannot be disabled in UI, enforced in API
+  injectionReminder   Boolean        @default(true)
   weightNudge         Boolean        @default(true)
-  consultReminder     Boolean        @default(true)  // cannot be disabled
+  consultReminder     Boolean        @default(true)
   refillAlert         Boolean        @default(true)
   milestones          Boolean        @default(true)
   weeklySummary       Boolean        @default(true)
-  quietHoursStart     Int            @default(22) // 10 PM
-  quietHoursEnd       Int            @default(7)  // 7 AM
+  quietHoursStart     Int            @default(22)
+  quietHoursEnd       Int            @default(7)
   familyPrivacyMode   Boolean        @default(false)
   updatedAt           DateTime       @updatedAt
 
   @@map("notification_preferences")
 }
 
-// ─── SUPPORT ─────────────────────────────────────────────
+// ─── SUPPORT ───────────────────────────────────────────────────────────────────
 
 model PatientFlag {
-  id          String         @id @default(uuid())
-  patientId   String
-  patient     PatientProfile @relation(fields: [patientId], references: [id])
-  flagType    String         // b12_low, missed_injections, no_weight_log, rapid_loss
-  severity    String         // critical | warning
-  data        Json           // { value: 108, threshold: 150, unit: 'pg/mL' }
-  resolved    Boolean        @default(false)
-  resolvedAt  DateTime?
-  createdAt   DateTime       @default(now())
+  id         String         @id @default(uuid())
+  patientId  String
+  patient    PatientProfile @relation(fields: [patientId], references: [id])
+  flagType   String
+  severity   String
+  data       Json
+  resolved   Boolean        @default(false)
+  resolvedAt DateTime?
+  createdAt  DateTime       @default(now())
 
   @@index([patientId, resolved])
   @@map("patient_flags")
 }
 
 model DoctorAvailability {
-  id        String   @id @default(uuid())
-  doctorId  String
-  doctor    Doctor   @relation(fields: [doctorId], references: [id])
-  dayOfWeek Int      // 0=Sunday, 6=Saturday
-  startHour Int
-  endHour   Int
-  slotDurationMins Int @default(30)
-  isActive  Boolean  @default(true)
+  id               String  @id @default(uuid())
+  doctorId         String
+  doctor           Doctor  @relation(fields: [doctorId], references: [id])
+  dayOfWeek        Int
+  startHour        Int
+  endHour          Int
+  slotDurationMins Int     @default(30)
+  isActive         Boolean @default(true)
 
   @@map("doctor_availability")
 }
@@ -496,7 +519,7 @@ model DoctorEarning {
   doctorId       String
   doctor         Doctor   @relation(fields: [doctorId], references: [id])
   consultationId String
-  amountPaise    Int      // doctor's share (40000 = ₹400)
+  amountPaise    Int
   paidAt         DateTime?
   payoutBatchId  String?
   createdAt      DateTime @default(now())
@@ -520,7 +543,7 @@ model CareTeamAccess {
 model ConsentLog {
   id          String   @id @default(uuid())
   userId      String
-  consentType String   // terms, privacy, data_sharing
+  consentType String
   version     String
   grantedAt   DateTime @default(now())
   revokedAt   DateTime?
