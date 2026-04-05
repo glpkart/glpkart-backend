@@ -5,6 +5,10 @@ const axios = require('axios')
 
 const prisma = new PrismaClient()
 
+// In-memory OTP store — no DB dependency for auth
+// Map of phone -> { code, expiresAt, attempts }
+const otpStore = new Map()
+
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 fastify.register(require('@fastify/cors'), {
   origin: [
@@ -95,11 +99,7 @@ fastify.post('/auth/otp/send', async (request, reply) => {
   const otp = OTP_BYPASS || generateOtp()
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
 
-  await prisma.otpSession.upsert({
-    where: { phone },
-    create: { phone, code: otp, expiresAt, attempts: 0 },
-    update: { code: otp, expiresAt, attempts: 0 },
-  })
+  otpStore.set(phone, { code: otp, expiresAt, attempts: 0 })
 
   const sent = await sendWhatsAppOtp(phone, otp)
 
@@ -121,23 +121,23 @@ fastify.post('/auth/otp/verify', async (request, reply) => {
     return reply.code(400).send({ error: 'Phone and OTP are required' })
   }
 
-  const session = await prisma.otpSession.findUnique({ where: { phone } })
+  const session = otpStore.get(phone) || null
   if (!session) {
     return reply.code(400).send({ error: 'No OTP found. Please request a new one.' })
   }
   if (session.expiresAt < new Date()) {
-    await prisma.otpSession.delete({ where: { phone } })
+    otpStore.delete(phone)
     return reply.code(400).send({ error: 'OTP expired. Please request a new one.' })
   }
   if (session.attempts >= 5) {
     return reply.code(429).send({ error: 'Too many attempts. Please request a new OTP.' })
   }
   if (session.code !== code.toString()) {
-    await prisma.otpSession.update({ where: { phone }, data: { attempts: { increment: 1 } } })
+    otpStore.set(phone, { ...session, attempts: (session.attempts || 0) + 1 })
     return reply.code(400).send({ error: 'Incorrect OTP. Please try again.' })
   }
 
-  await prisma.otpSession.delete({ where: { phone } })
+  otpStore.delete(phone)
 
   // FIX #4: patientProfile created with {} — safe now because all fields are optional in schema
   let user = await prisma.user.findUnique({ where: { phone } })
